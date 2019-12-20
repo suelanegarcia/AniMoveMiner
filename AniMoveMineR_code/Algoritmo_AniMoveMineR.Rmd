@@ -1,0 +1,1369 @@
+--- 
+title: "AniMoveMineR: UM FRAMEWORK PARA A ANALISE EXPLORATORIA DA INTERACAO ENTRE ANIMAIS E O MEIO AMBIENTE. By Suelane Garcia"
+        
+output: html_document 
+
+params:
+  data:
+    input: file
+    label: "Selecione o arquivo de dados de movimento animal:"
+    value: 'Dados_Move_Animal.csv'
+    
+  data1:
+    input: file
+    label: "Selecione o arquivo de dados ambientais:"
+    value: 'Dados_ambientais.csv'
+  
+  dist: 
+   input: numeric
+   label: "Distância limite (TD)"
+   value: 0.400
+  
+  interval:
+    input: numeric
+    label: "Intervalo em minutos (TI)" 
+    value: 15
+    
+  season:
+    input: select
+    label: "Analisa Estação do Ano"
+    value: Não
+    choices: ["Sim","Não"]
+  
+  minSupConf: [0.001, 0.5, 0.9]
+  minSupConfx: ["0_01", "0_5", "0_9"] 
+   
+---
+
+```{r}
+#############################################################################################################
+### ALGORITHM: Correlation Verification between animal movement data and environmental factors
+### *********************************************************************************************************
+### INPUT DATA (database): individual <!-- ID animal -->
+###                        lat        <!-- Animal position - latitude --> 
+###                        lon        <!-- Animal position - longitude -->
+###                        datetime   <!-- date and time of movement register -->
+###
+### OUTPUT DATA (ASSOCIATION RULES):
+###         basic measures (support and confidence)
+###         interest measures (phi/lift)
+###         degree dependence (Dep)
+###
+##############################################################################################################
+#install.packages("hab", repos = "http://ase-research.org/R/")
+#install.packages("hab", repos = "http://ase-research.org/R/", type = "source") #linux
+
+setwd("~/")
+
+#### *******************************************
+#### ***       PREPARE THE R LIBRARIES       ***
+#### *******************************************
+library(adehabitatLT)
+library(RMySQL)
+library(arules)
+library(ggplot2)
+library(sp)
+library(chron)
+library(dplyr)
+library(varhandle)
+library(adehabitatHR)
+library(leaflet)
+library (lubridate)
+library(outliers)
+library (stats)
+library(mapproj) 
+library(hms)
+library(stringr)
+library(geosphere)
+library(randomcoloR)
+library(ggrepel)
+library(arulesViz)
+library("widyr")
+library("vcd")
+library(shiny)
+
+#### *******************************************
+#### ***    INITIALIZE INPUT PARAMETERS      ***
+#### *******************************************
+### INPUT DATA (user defined parameters):
+###   * distRadius: indicates the maximum size of the distance radius, in meters. This value is used to limit the search radius around each 
+###           location point (latitude/longitude) and time (date/time) of the animal movement to the analysis of the distance between points
+###   * min_interval: interval in minutes, used to calculate the occurrence range of the environmental factor;
+###   * min_sup:  % mininum of frequency that the set A and B appear in the transaction set. It is calculated using the total 
+###               frequency divided by total record;
+###   * min_conf: % mininum of frequency that B appears in transactions containing A. It is calculated using the Sup value 
+###               divided by frequency of A;
+###   Apriori uses the SupM and ConfM parameters to determine which rules are relevant to the analysis
+#### *******************************************
+
+#### ************************************************************************
+#### ***                  PREPARA O BANCO DE DADOS                        ***
+#### ************************************************************************
+conn <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
+data <- dbSendQuery(conn, "call PrepareDB();")
+
+```
+
+
+```{r data}
+#### ************************************************************************
+#### ***          LÊ ARQUIVO (.CSV) E GRAVA NAS TABELAS DO MsqSQL         ***
+#### ************************************************************************
+
+df  <- read.csv(file=params$data, header=TRUE, sep=",")
+df2 <- read.csv(file=params$data1, header=TRUE, sep=",")
+
+dbWriteTable(conn, value = df, name = "tb_animal_movement", row.names=F, append = T)
+dbWriteTable(conn, value = df2, name = "tb_fator_ambiente", row.names=F, append = T)
+
+```
+
+
+```{r}
+#### ************************************************************************
+#### ***            STEP A - IDENTIFY THE ANIMAL BEHAVIOR                 ***
+#### ************************************************************************
+
+#############################################################################
+## ---->>>>  A1. IDENTIFY THE STATES OF ANIMAL BEHAVIOR
+##
+## DYNAMIC SCALING CODE FOR USING THE RESIDUAL METHOD OVER A TRACKING DATASET  
+## Modified from Irina Tolkova, November 2015
+## Rachael Orben, November 2015																						
+#############################################################################
+
+# --------------------- LOADING FUNCTIONS AND LIBRARIES ------------------- #
+
+# clear workspace and set working directory
+#rm(list = ls())
+
+# load C function, secondary functions, plotting functions
+dyn.load("RST_residenceRadii.dll") # if using Windows
+source("RST_functions_all.R")
+
+radius <- params$dist
+
+# --------------------- PREPARING DATASET --------------------- #
+#dbClearResult(dbListResults(conn)[[1]])
+
+#conn <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
+#data <- dbSendQuery(conn, "select M.individual as band, date as 'Datetime_GMT',  M.lat as 'lat', M.lon as 'lon'
+#                           from tb_mov_animal M;")
+
+
+
+conn <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
+data <- dbSendQuery(conn, "SELECT `tb_animal_movement`.`individual.local.identifier` as band, `tb_animal_movement`.`timestamp` as 'Datetime_GMT',  `tb_animal_movement`.`location.long` as 'lon',  `tb_animal_movement`.`location.lat` as 'lat' FROM tb_animal_movement;")
+
+#armazena os dados numa variavel
+origData <- fetch(data, n = -1)
+
+
+#### ************************************************************************
+#### *** RESIDENCE IN SPACE AND TIME METHOD (RST) (TORRES et al., 2017)
+#### ************************************************************************
+# construct a dataset for analysis (take the band identifiers, longitude, latitude, and time columns from the original data)
+# the unique identifier "band" needs to be numeric
+dataset <- data.frame("band" = origData$band,
+                      "lat" = origData$lat,
+                      "lon" = origData$lon,
+                      "datetime" = as.POSIXct(origData$Datetime_GMT, "GMT"))
+
+# remove NA lon/lat rows
+dataset <- dataset[!is.na(dataset$lon) & !is.na(dataset$lat), ]
+
+
+#converte as coordenadas de longitude e latitude para valores de coordenadas numa esfera
+# create grid x- and y- coordinates from the longitude/latitude coordinates
+library(mapproj)
+lambert <- mapproject(dataset$lon, dataset$lat, projection = "lambert", parameters = c(mean(dataset$lon), mean(dataset$lat)))
+scale <- haversineDist(min(dataset$lon), min(dataset$lat), max(dataset$lon), max(dataset$lat))/projectDist(min(lambert$x), min(lambert$y), max(lambert$x), max(lambert$y), 1)
+dataset$x <- lambert$x * scale
+dataset$y <- lambert$y * scale
+
+# --------------------- CALCULATING RESIDENCE VALUES --------------------- #
+# create a time array: duration of trip in given time units
+time_units = "mins" # one of "secs", "mins", "hours", "days", "weeks"
+
+# Certificar-se de que este esta em ordem seq|encial sem valores duplicados
+# Raio deve ser escolhido em torno da escala de movimento esperado. Tambim i ztil aumentar a resolugco de incrementos de raios
+# Perto de onde a proporgco de pontos de trbnsito cai abaixo de 0,05. Vocj provavelmente precisara executar este uma par de vezes para refinar.
+threshold <- rep(0, length(radius))
+
+# determine the different individuals
+bandIDs <- unique(dataset$band)
+
+# Para cada faixa, calcule os valores de residjncia
+# Se uma faixa nunca sai do raio escolhido, isso resultara em NAs para tempo de residjncia, distbncia e resmduos e um aviso associado.
+
+# Para calculos residenciais e residuais, NA i atribumdo a
+# (1) locais no inmcio das faixas ati que o animal se move para alim de R a partir do ponto inicial,
+# (2) para os locais no final que estco todos dentro de R do zltimo raio construmdo.
+
+all_tracks = data.frame()
+
+for (i in 1:length(bandIDs)) {
+  subdata = dataset[dataset$band == bandIDs[i], ]
+  subdata$time_diff = as.numeric(subdata$datetime - subdata$datetime[1], units = time_units)
+  result  <- residenceCalc(subdata$x, subdata$y, subdata$time_diff, radius, threshold)
+  subdata = cbind(subdata, result)
+  all_tracks = rbind(all_tracks, subdata)
+}
+
+#### ************************************************************************
+#### ***              END RST METHOD (TORRES et al., 2017)                ***
+#### ************************************************************************
+
+
+#### *****************************************************************************
+#### ***  BEHAVIOR CLASSIFICATION BASED ON RESULTS OF THE RST METHOD  (AUTORA) ***
+#### *****************************************************************************
+colnames(all_tracks)[which(names(all_tracks) == names(select(all_tracks, contains("res"))))] <- "res"
+colnames(all_tracks)[which(names(all_tracks) == names(select(all_tracks, contains("band"))))] <- "individual"
+colnames(all_tracks)[which(names(all_tracks) == names(select(all_tracks, contains("datetime"))))] <- "timestamp"
+all_tracks$res[all_tracks$res == "#N/A"] <- "NA" 
+all_tracks$res[all_tracks$res =="."] <- ","
+
+all_tracks$estado[all_tracks$res == 0] <- "Transito" 
+all_tracks$estado[all_tracks$res > 0] <- "Forrageio" 
+all_tracks$estado[all_tracks$res < 0] <- "Descanso" 
+all_tracks$estado[is.null(all_tracks$res) == TRUE] <- "NA" 
+all_tracks$dat = format(as.Date(all_tracks$timestamp), "%Y-%m-%d")
+all_tracks$hora = as_hms(as.POSIXct(all_tracks$timestamp, format = "%H:%M:%S"))
+all_tracks$dataestadoid = paste(all_tracks$individual, '.', all_tracks$dat, '.', all_tracks$estado, sep = "")
+all_tracks$dateid = paste (all_tracks$dat, all_tracks$individual, sep = "")
+all_tracks$yearmonid = paste (format(as.Date(all_tracks$timestamp), "%Y-%m"), " | ", all_tracks$individual, sep = "")
+all_tracks$yearid = paste (format(as.Date(all_tracks$timestamp), "%Y"),  all_tracks$individual, sep = "")
+all_tracks$yearmonidest = paste (format(as.Date(all_tracks$timestamp), "%Y-%m"), " | ", all_tracks$individual, " | ", all_tracks$estado, sep = "")
+all_tracks$dateidEst = paste (all_tracks$dat, all_tracks$individual, '.', all_tracks$estado, sep = "")
+
+# CREATE TABLE TO BEHAVIOR STATE 
+connMove <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
+dbWriteTable(connMove, value = all_tracks, name = "TB_RST_MovAnimal_Estado", row.names=F, append = T)
+
+############################################################################################################
+
+```
+
+
+
+```{r}
+
+#### **************************************************************************************************
+#### ***                        GENERATES ANIMAL TRAJECTORIES   AdehabitatLT (CALENGE; ROYER, 2015)
+#### **************************************************************************************************
+#dsMonk = all_tracks
+dsMonk = filter (all_tracks, !(all_tracks$res == "NA" & (all_tracks$res == "Indefinido")))
+daMonk = as.POSIXct(dsMonk$timestamp, "GMT")
+dsM <- as.data.frame(dsMonk)
+
+trajStaTime <- as.ltraj(xy =dsMonk[,c("lat", "lon")], date = daMonk, burst = dsMonk$dataestadoid, id = dsMonk$dataestadoid, infolocs = dsMonk[1:21])
+
+trajMoveYMID <- as.ltraj(xy =dsMonk[,c("lat", "lon")], date = daMonk, burst = dsMonk$yearmonid, id = dsMonk$yearmonid, infolocs = dsMonk[1:21])
+
+trajMoveYMIDE <- as.ltraj(xy =dsMonk[,c("lat", "lon")], date = daMonk, burst = dsMonk$yearmonidest, id = dsMonk$yearmonidest, infolocs = dsMonk[1:21])
+
+#### **************************************************************************************************
+#### ***                         END AdehabitatLT (CALENGE; ROYER, 2015)
+#### **************************************************************************************************
+```
+
+
+```{r}
+#### ******************************************************************************
+#### *** ANIMAL TRAJECTORY - RESULT (AUTORA) 
+#### ******************************************************************************
+yearIdTraj = unique(burst(trajMoveYMID))
+trajdata = ld(trajMoveYMID)
+individual =  unique(trajdata$individual)
+groups = as.character(yearIdTraj)
+
+i = 1
+map <- leaflet()%>%addTiles     #(Agafonkin, 2019)
+palette <- distinctColorPalette(length(individual))
+
+ls = list()
+
+
+for (i in 1:length(individual)) {
+  x <- as.character(individual [i])
+  ls[[x]] = palette[i]
+  i = i +1
+  }
+
+i = 1
+
+for (i in 1:length(yearIdTraj)) {
+     reloc <-summary(trajMoveYMID[i]) 
+ 
+       if (reloc$nb.reloc >= 5) {
+          dsM1 = ld(trajMoveYMID[i])
+          animal  = unique(dsM1[c("individual")])
+         
+          
+          mindate = min(as.POSIXct(dsM1$date, format = "%y/%m/%d %H:%M"))
+          maxdate = max(as.POSIXct(dsM1$date, format = "%y/%m/%d %H:%M"))
+          pointsIniEnd <- filter (dsM1, dsM1$date == mindate | dsM1$date == maxdate )
+          cor = as.character(ls[animal[,1]])
+          map <- map%>%addMarkers(lng = ~pointsIniEnd$lon, lat = ~pointsIniEnd$lat, 
+                                  data =pointsIniEnd,  labelOptions = labelOptions(noHide = T),
+                                  label = paste(date(pointsIniEnd$date), "/", pointsIniEnd$estado, sep = ""), 
+                                  group= burst(trajMoveYMID[i]))
+          map <- map%>% addPolylines(dsM1$lon, dsM1$lat, labelOptions = labelOptions(noHide = T), 
+                                    group= burst(trajMoveYMID[i]),  weight= 5, color = cor)
+       }
+
+}
+
+map %>% addLayersControl(overlayGroups = groups, options = layersControlOptions(collapsed = FALSE))%>% hideGroup(groups)
+
+```
+
+
+
+```{r}
+#### **************************************************************************************************
+#### A2. IDENTIFY THE PERIODS OF STATES OCCURRENCE PER ANIMAL AND DAY (day/month/year/hour) (AUTORA) **
+#### **************************************************************************************************
+a = 1
+r = 1
+lsSeq = list() 
+
+for (a in 1:length(trajStaTime)) {
+      #read trajectories
+      seqEstado <- ld(trajStaTime [a]);       
+      seqYear = year(seqEstado[1,"date"])
+      mon = month(seqEstado[1,"date"])
+      date = format(as.Date(seqEstado[1,"date"]), "%Y-%m-%d")
+      yearmonid =  seqEstado[1,"yearmonid"]
+      est = seqEstado[1,"estado"]
+      yearmonidest = paste(yearmonid, est, sep = "")
+      idtraj = seqEstado[1,"individual"]
+      idtraj = as.character(idtraj)
+      yid = paste(seqYear, idtraj, sep = "")
+  
+      # generates sequence of hours
+      seqEst <- c(seqEstado[,"hora"])
+      seqEst <- chron(times=seqEst)
+  
+      # initialize var
+      i = 1
+      x = 1
+      tamSeq = length(seqEst)
+      ls = c()
+
+      # segment the hours by continuous intervals
+          for (i in 1:tamSeq) {
+                  if (x == 1 ){
+                     ls[x] <- as.character(seqEst[i])
+                     x = x + 1
+                  }
+                  if (is.na(seqEst[i+1]) == TRUE) {
+                     ls[x]  <- as.character(seqEst[i])
+                     
+                      difTime = difftime(as.POSIXct(max(ls), format = "%H:%M:%S"), as.POSIXct(min(ls), format = "%H:%M:%S"), unit = "mins")
+                      
+                     lsSeq[[r]] =  c(idx =  r, burst =  burst(trajStaTime [a]), id=idtraj, estado = est, minSeq = min(ls), 
+                                     maxSeq = max(ls), yearSeq = seqYear, mon = mon, yearId = yid, date = date, yearmonid= yearmonid,
+                                     yearmonidest= yearmonidest, difSeqM = floor(difTime))
+                      r = r +1
+                      
+                  }
+                  else {
+                        difMin = abs(as.numeric(difftime(strptime(seqEst[i],"%H:%M:%S"), strptime(seqEst[i+1],"%H:%M:%S"), units="mins"))) 
+                     
+                        if (difMin  < 66){
+                             ls[x] <- as.character(seqEst[i+1])
+                         
+                             x = x + 1
+                            
+                        } else {
+                          
+                                difTime = difftime(as.POSIXct(max(ls), format = "%H:%M:%S"), as.POSIXct(min(ls), format = "%H:%M:%S"), 
+                                                   unit = "mins")
+                                lsSeq[[r]] =  c(idx =  r, burst =  burst(trajStaTime [a]),id=idtraj, estado = est, minSeq = min(ls), 
+                                              maxSeq = max(ls), yearSeq = seqYear,mon = mon, yearId = yid, date = date, yearmonid= yearmonid,
+                                              yearmonidest= yearmonidest, difSeqM = floor(difTime))
+                                r = r +1
+                                ls= c()
+                                x = 1 
+                        }
+                  }
+          }
+}
+
+out = do.call(rbind, lsSeq)
+
+
+
+#### *************************************************************************
+####  A3. IDENTIFY THE OUTLIERS OF THE PERIODS OF OCCURRENCE OF THE STATES ***
+#### *************************************************************************
+
+df <- as.data.frame(out)
+ds = unique(df$yearmonidest)
+i= 1
+r= 1
+lsSeq = list() 
+
+for (i in 1:length(ds)){
+    da = filter(df, df$yearmonidest == ds[i])
+    da = unfactor(da)
+    outSup = outlier(da$difSeqM)    # Outliers (KOMSTA, 2011
+    outInf = outlier(da$difSeqM,opposite =TRUE)
+    avg = mean(x = da$difSeqM)
+    desvio = sd(as.numeric(avg))
+    lsSeq[[r]] =  c(id= unique(da$id), estado = unique(da$estado), year = unique(da$yearSeq), mon = unique(da$mon), burst = unique(da$yearmonidest),  outSup = outSup, outInf = outInf, mean = avg, sd = desvio)
+    r = r +1
+}
+outOutlier = do.call(rbind, lsSeq) 
+
+
+
+#####################################################################################################################
+###  A3.1 PERIODS WITHOUT OUTLIERS (dtMovClr) (AUTORA)
+#####################################################################################################################
+
+dt1 <- unfactor(as.data.frame(outOutlier))
+dt2 <- unfactor(as.data.frame(out))
+dto <- unique(dt1$burst)
+i= 1
+
+# for each id, year, month, state
+for (i in 1:length(dto)){
+    da = filter (dt1, dt1$burst == dto[i])
+    dt2 = filter (dt2, !(da$burst == dt2$yearmonidest & (dt2$difSeqM == 0)))
+    dt2 = filter (dt2, !(da$burst == dt2$yearmonidest & (da$outSup == dt2$difSeqM)))
+    dt2 = filter (dt2, !(da$burst == dt2$yearmonidest & (da$outInf == dt2$difSeqM)))
+    dt2 = filter (dt2, !(da$burst == dt2$yearmonidest & (as.integer(dt2$difSeqM) > (as.integer(da$mean) * 2))))
+   
+}
+dtMovClr = dt2
+
+# CREATE TABLE TO BEHAVIOR STATE 
+connMove <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
+dbWriteTable(connMove, value = dtMovClr, name = "TBPeriodState", row.names=F, append = T)
+
+dat <- dbSendQuery(connMove, "call calcTotalStatePeriod();")
+ds <- fetch(dat,n = -1)
+da <- as.data.frame(ds)
+da
+
+
+#####################################################################################################################
+####      A4. IDENTIFY THE PERIODS FREQUENT OF BEHAVIOR STATE OCCURRENCE 
+###  IDENTIFIES THE MOST FREQUENT PERIODS (tbperiodfreq) AND LESS FREQUENT (tbperiodfreqLess)
+#####################################################################################################################
+
+#####################################################################################################################
+###  A4.1   IDENTIFY INTERSECTIONS BETWEEN THE PERIODS  (AUTORA)
+#####################################################################################################################
+i = 1
+r = 1
+x = 1
+nper=0
+
+lsSeq = list() 
+
+dt = as.data.frame(dtMovClr)
+
+
+# identifies unique yearmonidest
+dta <- unique(dt$yearmonidest)
+
+#to each year/month/ id/state
+for (i in 1:length(dta)){
+    # filters the smallest and longest period
+    ds <- filter (dt, as.character(dt$yearmonidest) == as.character(dta[i]))
+    ds <- arrange(ds, ds$yearmonidest,ds$minSeq, ds$maxSeq)
+    ds1 <- data.frame( yearmonidest = c(ds$yearmonidest), id=c(ds$id), estado = c(ds$estado), 
+                       yearSeq = c(ds$yearSeq), minSeq = c(ds$minSeq), maxSeq = c(ds$maxSeq),  monSeq = c(ds$mon))
+
+    tam = nrow(ds1)
+
+    # to each period 
+    for (r in 1:tam) {
+      # reads the current period
+      dsN <- ds1[r,]
+
+      if (r == 1){
+        minS = dsN$minSeq
+        maxS = dsN$maxSeq
+      }
+
+      # reads the next period
+      dsN1 <- ds1[r+1,]
+
+      if (is.na(dsN1$minSeq) == FALSE) {
+       
+            if ((format(as.POSIXct(dsN1$minSeq, format = "%H:%M"),'%H:%M') >= 
+                 format(as.POSIXct(minS, format = "%H:%M"),'%H:%M')  & 
+                 format(as.POSIXct(dsN1$minSeq, format = "%H:%M"),'%H:%M') <= 
+                 format(as.POSIXct(maxS, format = "%H:%M"),'%H:%M')) &
+                (format(as.POSIXct(dsN1$maxSeq, format = "%H:%M"),'%H:%M') >= 
+                 format(as.POSIXct(minS, format = "%H:%M"),'%H:%M')  & 
+                 format(as.POSIXct(dsN1$maxSeq, format = "%H:%M"),'%H:%M') <= 
+                 format(as.POSIXct(maxS, format = "%H:%M"),'%H:%M'))){
+                 r = r +1
+                 nper = nper + 1
+  
+            }else if ((format(as.POSIXct(dsN1$minSeq, format = "%H:%M"),'%H:%M') >= 
+                       format(as.POSIXct(minS, format = "%H:%M"),'%H:%M') & 
+                       format(as.POSIXct(dsN1$minSeq, format = "%H:%M"),'%H:%M') <= 
+                       format(as.POSIXct(maxS, format = "%H:%M"),'%H:%M')) & 
+                      (format(as.POSIXct(dsN1$maxSeq, format = "%H:%M"),'%H:%M') >= 
+                       format(as.POSIXct(minS, format = "%H:%M"),'%H:%M') & 
+                       format(as.POSIXct(dsN1$maxSeq, format = "%H:%M"),'%H:%M') >= 
+                       format(as.POSIXct(maxS, format = "%H:%M"),'%H:%M'))) {
+             
+                       maxS =  dsN1$maxSeq
+                       r = r +1
+                        nper = nper + 1
+                         
+            }else if ((format(as.POSIXct(dsN1$minSeq, format = "%H:%M"),'%H:%M') > 
+                       format(as.POSIXct(minS, format = "%H:%M"),'%H:%M') & 
+                       format(as.POSIXct(dsN1$minSeq, format = "%H:%M"),'%H:%M') > 
+                       format(as.POSIXct(minS, format = "%H:%M"),'%H:%M') & 
+                       format(as.POSIXct(dsN1$minSeq, format = "%H:%M"),'%H:%M') <= 
+                       format(as.POSIXct(maxS, format = "%H:%M") + minutes(60),'%H:%M'))) {
+                    
+                       maxS =  dsN1$maxSeq
+                       r = r +1
+                       nper = nper + 1
+                         
+            }else {
+        
+                 lsSeq[[x]] =  c(yearmonidest = as.character(dsN$yearmonidest), id=as.character(dsN$id),
+                                estado = as.character(dsN$estado), yearSeq = as.character(dsN$yearSeq), 
+                                monSeq = as.character(dsN$monSeq),
+                                minSeq = format(as.POSIXct(minS, format = "%H:%M"),'%H:%M'), 
+                                maxSeq = format(as.POSIXct(maxS, format = "%H:%M"),'%H:%M'), n=nper) 
+                  x = x +1
+                  nper = 0
+                  minS = dsN1$minSeq
+                  maxS = dsN1$maxSeq
+              
+                  r = r +1
+    
+            }
+        
+      }else {
+         lsSeq[[x]] =  c(yearmonidest  = as.character(dsN$yearmonidest), id=as.character(dsN$id),
+                                estado = as.character(dsN$estado), yearSeq = as.character(dsN$yearSeq), 
+                                monSeq = as.character(dsN$monSeq),
+                                minSeq = format(as.POSIXct(minS, format = "%H:%M"),'%H:%M'), 
+                                maxSeq = format(as.POSIXct(maxS, format = "%H:%M"),'%H:%M'), n=nper) 
+          x = x +1
+          r = 1 
+          nper = 0
+      }
+    }
+}    
+
+outPeriod = do.call(rbind, lsSeq)
+allperiod = as.data.frame(outPeriod)
+
+
+#####################################################################################################################
+###  A4.2   PERIODS FREQUENTS TOP 1 (AUTORA)
+#####################################################################################################################
+
+# most frequent periods per year/month/animal/state (top 1)
+periodTopN = allperiod %>% group_by(yearmonidest)%>% top_n(max(as.integer(allperiod$n)))
+
+#####################################################################################################################
+###  A4.3   PERIODS LESS FREQUENTS (AUTORA)
+#####################################################################################################################
+tbperiodfreqLess  = filter (periodTopN, (n == "1" | n == "0"))
+
+
+#####################################################################################################################
+###  A4.4   PERIODS MOST FREQUENTS (AUTORA)
+#####################################################################################################################
+tbperiodfreq = filter (periodTopN, (n != "1" &  n != "0"))
+
+# CREATE TABLE TO BEHAVIOR STATE 
+connMove <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
+dbWriteTable(connMove, value = tbperiodfreq, name = "TB_Periodo_Freq", row.names=F, append = T)
+tbperiodfreq
+
+```
+
+
+
+```{r}
+
+#### **************************************************************************************************
+#### ***      >>>>    STATE BEHARIOR MATRIX   (AUTORA)                                  
+#### **************************************************************************************************
+df <- as.data.frame(out)
+dfYear <- unique (paste(df$yearId, df$mon, sep= ""))
+          
+i = 1 
+while (i <= length(dfYear)) {
+      df <- as.data.frame(out)
+      anoid = as.character(dfYear[i])
+   
+      df =  filter(df, paste(df$yearId, df$mon, sep= "")  == anoid)
+      df$DD <- day(df$date)
+      df$startHH <- as.numeric(substring(df$minSeq, 1, 2))
+      df$endHH <- as.numeric(substring(df$maxSeq, 1, 2))
+    
+      nameFile = as.character(paste(dfYear[i],"MatrixYearMon.png", sep = ""))
+      png(nameFile)
+      print({
+      p <- ggplot(df,aes(xmin = startHH, xmax = endHH + 1, ymin = DD-0.5, ymax = DD + 0.5)) +
+           geom_rect(aes(fill = df$estado), col="black") +
+           guides(fill=guide_legend(title="Estado")) +
+           scale_x_continuous(breaks=0:23,limits=c(0,23)) +
+           scale_y_continuous(breaks=0:31,limits=c(0,31)) +
+           theme_bw() + 
+           labs(#title="Estados do comportamento animal\n", 
+            subtitle= paste("Animal:", df$id, sep=""), caption= paste("M?s/Ano: ", df$mon, "/", df$yearSeq, sep="")) +  
+            xlab("Horas") + ylab("Dias")
+})
+  dev.off()
+  i = i +1 
+}
+
+```
+
+
+```{r}
+
+#### *********************************************************************************************
+#### *** >>> RESULT: STATE BEHAVIOR BY HOURS INTERVALS (AUTORA) 
+#### *********************************************************************************************
+
+ df = as.data.frame(tbperiodfreq)
+ dfid <- unique (paste(df$id, df$estado, sep = ""))
+ i = 1
+
+ for (i in 1:length(dfid)){
+        da =  filter(df, paste(df$id, df$estado, sep = "") == dfid[i])
+        monyear = paste(da$yearSeq, "-", str_pad(da$monSeq, 2, pad = "0"), sep = "")
+       
+        p <-  ggplot() + geom_pointrange(data=da, mapping=aes(x=as.character(monyear), 
+             y = format(as.POSIXct(da$minSeq, format = "%H"),'%H'), 
+             ymin=format(as.POSIXct(da$minSeq, format = "%H"),'%H'),  
+             ymax= format(as.POSIXct(da$maxSeq, format = "%H"),'%H'),  
+             color = da$estado), size=1, shape=20) + labs(color='Estado') +
+             scale_colour_manual(values = c("Descanso" = "blue", "Forrageio" = "red",  "Transito" = "green")) +
+             theme_bw() + theme(plot.title = element_text(hjust = 0.4), 
+                                axis.text.x = element_text(angle = 45, hjust = 1)) +
+            labs(title="Intervalo entre horas de ocorrência do estado do comportamento\n", 
+            subtitle= paste("Animal:", da$id, sep=""), caption= paste("Ano: ", da$yearSeq, sep="")) +  
+            xlab("Ano/Mês") + ylab("Horas") 
+        
+       plot(p)
+ }
+ 
+
+```
+
+
+
+```{r}
+#### *************************************************************************************
+#### ***  A5. IDENTIFY THE HOME RANGE OVERLAP BT ID/MONTH/YEAR (LIST) (CALENGE, 2006)  ***
+#### *************************************************************************************
+
+dsM1 = ld(trajMoveYMID)
+prj <- '+init=epsg:26911'
+locationsDD <- SpatialPointsDataFrame(dsM1[c("lon", "lat")], dsM1["individual"], proj4string = CRS(prj))
+
+#UDOI - um mndice de sobreposigco de UD,assume que eles usam o espago independentemente um do outro (Hurlbert, 1978). Valores:
+#zero = sem sobreposigco / 1 = (uniformemente distribumdo e tem 100% de sobreposigco)/  > 1 = se ambos os UDs nco forem uniformemente distribumdos e tiverem um alto grau de sobreposigco.
+kerneloverlap(locationsDD, grid=1200, percent = 90, meth="UDOI", conditional=FALSE)
+
+#### *************************************************************************************
+#### ***                               END (CALENGE, 2006)                             ***
+#### *************************************************************************************
+
+```
+
+
+```{r}
+#### ******************************************************************************
+#### ***  A5. IDENTIFY THE HOME RANGE BY BEHAVIORAL ID/MONTH/YEAR (AUTORA)      ***
+#### ******************************************************************************
+yearIdTraj = unique(burst(trajMoveYMID))
+trajdata = ld(trajMoveYMID)
+individual =  unique(trajdata$individual)
+groups = as.character(yearIdTraj)
+
+i = 1
+map <- leaflet()%>%addTiles
+
+palette <- distinctColorPalette(length(individual))
+ls = list()
+
+
+for (i in 1:length(individual)) {
+  x <- as.character(individual [i])
+  ls[[x]] = palette[i]
+  i = i +1
+  }
+
+for (i in 1:length(yearIdTraj)) {
+     reloc <-summary(trajMoveYMID[i]) 
+ 
+       if (reloc$nb.reloc >= 5) {
+          dsM1 = ld(trajMoveYMID[i])
+          ano = as.character(unique(paste(substring(burst(trajMoveYMID[i]), 1, 4), sep="")))
+          mon = as.character(unique(paste(substring(burst(trajMoveYMID[i]), 6, 7), sep="")))
+          id  = dsM1[c("id")]
+          animal  = unique(dsM1[c("individual")])
+          cor = as.character(ls[animal[,1]])
+          prj <- '+init=epsg:26911'
+          sp <- SpatialPoints(coords = dsM1[c("lon", "lat")], proj4string = CRS(prj))
+          kd <- kernelUD(sp)
+          ud <- getverticeshr(kd, grid= 1200, percent =30)
+          map <- map%>% addPolygons(data = ud, label = burst(trajMoveYMID[i]), labelOptions = labelOptions(noHide = T),
+                                    group= burst(trajMoveYMID[i]),  stroke = TRUE, color = "black", weight = 1, opacity = 0.7,
+    fillColor = cor,  fillOpacity = 1)
+        }
+}
+
+map %>% addLayersControl(overlayGroups = groups, options = layersControlOptions(collapsed = FALSE))%>% hideGroup(groups)
+
+
+#### ******************************************************************************
+#### ***  A5. IDENTIFY THE HOME RANGE BY BEHAVIORAL STATE/MONTH/YEAR  (AUTORA)  ***
+#### ******************************************************************************
+
+yearIdTraj = unique(burst(trajMoveYMIDE))
+groups = as.character(yearIdTraj)
+i = 1
+map <- leaflet()%>%addTiles
+
+for (i in 1:length(yearIdTraj)) {
+     reloc <-summary(trajMoveYMIDE[i]) 
+ 
+       if (reloc$nb.reloc >= 5) {
+          dsM1 = ld(trajMoveYMIDE[i])
+          ano = as.character(unique(paste(substring(burst(trajMoveYMIDE[i]), 1, 4), sep="")))
+          mon = as.character(unique(paste(substring(burst(trajMoveYMIDE[i]), 6, 7), sep="")))
+          id  = dsM1[c("id")]
+          animal  = unique(dsM1[c("individual")])
+          cor = as.character(ls[animal[,1]])
+          prj <- '+init=epsg:26911'
+          sp <- SpatialPoints(coords = dsM1[c("lon", "lat")], proj4string = CRS(prj))
+          kd <- kernelUD(sp)
+          ud <- getverticeshr(kd, grid= 1200, percent =30)
+          map <- map%>% addPolygons(data = ud, label = burst(trajMoveYMIDE[i]), labelOptions = labelOptions(noHide = T), 
+                                    group= burst(trajMoveYMIDE[i]),  stroke = TRUE, color = "black", weight = 1, opacity = 0.7,
+    fillColor = cor,  fillOpacity = 1)
+       }
+ 
+}
+map %>% addLayersControl(overlayGroups = groups, options = layersControlOptions(collapsed = FALSE))%>% hideGroup(groups)
+
+
+```
+
+
+
+```{r}
+#### *********************************************************************************************
+####    B. IDENTIFY THE NEIGHBORING ENVIRONMENTAL FACTORS OF THE ANIMAL BEHAVIOR OCCURRENCE    ***
+####    CALCULATION THE DISTANCE BETWEEN TWO POINTS (Vincenty great-circle distance formula)   *** 
+#### *********************************************************************************************
+
+#### *********************************************************************************************
+####                          *****  DISTANCE BETWEEN ANIMALS ****  (AUTORA)                   ***
+#### *********************************************************************************************
+
+
+connMove <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
+name_file = paste("call calculaDistancia(", params$interval, "," ,params$interval, ")", sep = "")
+dataMove <- dbSendQuery(connMove, name_file)
+
+#ql <- paste("select  ind1, ind2, concat(year(date1), month(date1)) as yearmon, year(date1) year, month(date1) mon  
+#       from TB_Distancia_Animal where ind1 <> ind2 and dist <= ", params$dist, sep = "")
+
+
+dataAssoc <- dbSendQuery(connMove,"select  year(date1) year, month(date1) mon, ind1 Animal1, ind2 Animal2, AVG(dist) Dist_Media from TB_Distancia_Animal where ind1 <> ind2  group by  ind1, ind2" )
+
+ds <- fetch(dataAssoc,n = -1)
+da <- as.data.frame(ds)
+dsYear = unique(da$year)
+
+
+    b = 1
+    p =""
+    t = length(dsYear)
+
+    for (b in 1:t){
+       dsa <- filter (da, as.character(da$year) == as.character(dsYear[b]))
+       
+       p <- ggplot(dsa, aes(y=dsa$Dist_Media, x=paste(dsa$Animal1, "_", dsa$Animal2, sep=""))) +
+       geom_bar(position="dodge", stat="identity",  width = 0.2) + theme(axis.text.x = element_text(angle=85, vjust=0.6)) + 
+       labs(title="Distância Média entre animais por ano", 
+       subtitle= "", caption= paste("Ano: ", dsa$year, sep="")) +   
+       xlab("Animais") + ylab("Distância Média (km)")  
+       plot(p)
+       
+      }
+    
+ 
+      sql <- paste("select ind1 Animal1, ind2 Animal2, date(date1) date,  date1, concat(year(date1), 
+                     month(date1)) as yearmon, year(date1) year, month(date1) mon, avg(dist) dist
+                     from TB_Distancia_Animal where ind1 <> ind2 and dist <= ", params$dist, 
+                     " group by yearmon, ind1, ind2, date(date1) order by yearmon, ind1, ind2, date(date1)", sep = "")
+       dtAssoc <- dbSendQuery(connMove,sql)
+       ds1 <- fetch(dtAssoc,n = -1)
+       da1 <- as.data.frame(ds1)
+       dsYear1 = unique(paste(da1$year, da1$Animal1, da1$Animal2, sep=""))
+       a = 1
+    
+    for (a in 1:length(dsYear1)){
+       dt <- filter (da1, as.character(paste(da1$year, da1$Animal1, da1$Animal2, sep="")) == as.character(dsYear1[a]))
+       x <- ggplot(dt, aes(y=dt$dist, x=dt$date)) +
+       geom_bar(position="dodge", stat="identity",  width = 0.2) + theme(axis.text.x = element_text(angle=85, vjust=0.6)) + 
+       labs(title="Distância entre animais", 
+       subtitle= paste("Animais: ", dt$Animal1, " e ", dt$Animal2, sep=""), 
+       caption= paste("Ano: ",  dt$year, "|", "Distância Limite <= ", params$dist, "km", sep="")) +   
+       xlab("Data") + ylab("Distância Média (km)")  + 
+       facet_wrap(~paste("Mês: ", dt$mon, sep=""),  ncol=1) 
+       plot(x)
+    }
+    
+```
+
+
+```{r}
+
+#### *********************************************************************************************
+####    B. IDENTIFY THE NEIGHBORING ENVIRONMENTAL FACTORS OF THE ANIMAL BEHAVIOR OCCURRENCE    ***
+####    CALCULATION THE DISTANCE BETWEEN TWO POINTS (Vincenty great-circle distance formula)   ***
+#### *********************************************************************************************
+
+#### *********************************************************************************************
+####    ********  DISTANCE BETWEEN ANIMALS AND ENVIRONMENTAL FACTOR  *****                     ***
+####    CHECK 3 SITUATIONS:                                                                    ***
+####            Situation 1: distance (lat/lon) and time (datetime)                            ***
+####            Situation 2: no distance and time (datetime)                                   ***
+#### *********************************************************************************************
+#conn <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
+#name_file = paste("call Animal_Neighbor_Factor(", params$interval,",", params$interval, ",", params$dist, ")", sep = "")
+#data <- dbSendQuery(conn, name_file)
+
+```
+
+
+```{r}
+#### ******************************************************************************************
+#### C.IDENTIFY THE CORRELATION BETWEEN ANIMALS (ANIMAL x ANIMAL)                             *  
+#### ******************************************************************************************
+
+#### ****************************************************************************************
+#### *** IDENTIFIES CORRELATION BETWEEN NEIGHBORS ANIMALS  (ANIMAL x ANIMAL) - MONTH/YEAR ***
+#### ****************************************************************************************
+
+connAssoc <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
+sql <- paste("select  ind1, ind2, concat(year(date1), month(date1)) as yearmon, year(date1) year, month(date1) mon 
+              from TB_Distancia_Animal where ind1 <> ind2 and dist <= ", params$dist, sep = "")
+
+dataAssoc <- dbSendQuery(connAssoc,sql)
+ds <- fetch(dataAssoc,n = -1)
+da <- as.data.frame(ds)
+yearmon = unique(da$yearmon)
+b = 1
+Rule = data.frame()
+
+for (b in 1:length(params$minSupConf)){
+a = 1
+df = data.frame()
+
+
+#para cada id, ano, mes, estado 
+for (a in 1:length(yearmon)){
+  ym = yearmon[a]
+  dsAssoc <- filter(da, da$yearmon == ym)
+  year = substr(ym, 1, 4)
+  mon = substr(ym, 5, length(da$yearmon ))
+
+    if (length(dsAssoc) > 0){
+      dsAssoc[] <- lapply(dsAssoc, factor)
+
+      ### transforma em transacao para ser utilizado pelo algoritmo apriori
+      transDados = as(dsAssoc[1:2], "transactions");
+      rules = apriori(transDados, parameter=list(support=params$minSupConf[b], confidence=params$minSupConf[b]));
+
+      if (length(rules)!= 0){
+       
+    #      quality(rules)$phi  <- interestMeasure(rules, measure='phi', significance=T, transDados)
+          ruledf = data.frame(id = ym, year= year, mon = mon,
+                              lhs = labels(lhs(rules)), rhs = labels(rhs(rules)),
+                               rules@quality, 
+                               supA = support(lhs(rules), transDados), 
+                               supB = support(rhs(rules), transDados), 
+                               supEsp = (support(lhs(rules), transDados) * support(rhs(rules), transDados)), 
+                               test =  paste("mSup=", params$minSupConf[b], "/mConf=", params$minSupConf[b], sep = ""),
+                               interestMeasure(rules, c("phi",  "chiSquared"),
+                                               significance=TRUE, transDados)
+                             )
+         
+          plot(sort(rules, by="lift"), method="graph", 
+               main= paste("Mês/Ano:", mon, "/", year, " | minSup:", params$minSupConf[b],  " |minConf:", 
+                           params$minSupConf[b],sep=""), control=list(type="items"))
+         
+          df <- rbind(df, ruledf)
+      }
+      
+ 
+  }
+
+}
+
+Rule <- rbind(Rule, df)
+
+}
+
+
+if (length(Rule) > 0) {
+    name_file = "TB_Rule_Animal_Neighbor_Animal"
+    dbWriteTable(connAssoc, value = Rule, name = name_file, append = T) 
+  
+}
+
+    SQLRule = "select year, mon Month, CAST(supA AS DECIMAL(6,1)) supA,  CAST(supB AS DECIMAL(6,1))supB, 
+    replace(replace (replace(lhs, '{ind1=', ''), '}',''),  '{ind2=', '') Animal1, 
+    replace(replace (replace(rhs, '{ind1=', ''), '}',''),  '{ind2=', '') Animal2, 
+    CAST(support AS DECIMAL(6,1))  sup1, 
+    cast((IFNULL(CAST(support AS DECIMAL(6,2)), 1)  * 100) as decimal(3))  'Sup', 
+    cast((IFNULL(CAST(confidence AS DECIMAL(6,2)), 1)  * 100) as decimal(3)) 'Conf',     
+	(CASE WHEN  support = 1 and confidence = 1 and phi is null THEN cast((IFNULL(CAST(phi AS DECIMAL(6,2)), 1)  * 100) as decimal(3))
+    Else  cast((CAST(phi AS DECIMAL(6,2))  * 100) as decimal(2)) END) Phi,     
+    cast(lift as decimal(3)) lift,
+    ((CASE WHEN support > supEsp  THEN '1' WHEN support < supEsp THEN '-1'  WHEN support = supEsp  THEN '0' END )  + 
+     (CASE WHEN confidence > supB THEN '1' WHEN confidence < supB THEN '-1' WHEN confidence = supB THEN '0' END )  +  
+	 (CASE WHEN lift > 1  THEN '1' WHEN lift < 1 THEN '-1' WHEN lift = 1  THEN '0' END )) Dep,
+    count as 'Reg',
+    (CASE  WHEN  CAST(phi AS DECIMAL(6,2)) = -1 THEN 'Perfeita Correlacao Negativa' 
+    WHEN CAST(phi AS DECIMAL(6,2)) =  0 THEN 'Sem Correlacao'
+    WHEN CAST(phi AS DECIMAL(6,2)) =  1 THEN 'Correlacao Positiva Perfeita'
+    WHEN CAST(phi AS DECIMAL(6,2)) > -1 and 
+		 CAST(phi AS DECIMAL(6,2)) <= -0.68 THEN 'Forte Correlacao Negativa'
+    WHEN CAST(phi AS DECIMAL(6,2)) >= - 0.67 and
+    CAST(phi AS DECIMAL(6,2)) <= -0.36 THEN 'Moderada Correlacao Negativa'
+    WHEN  CAST(phi AS DECIMAL(6,2)) >= - 0.35 and 
+    CAST(phi AS DECIMAL(6,2)) <= 0.35 THEN 'Fraca ou Nenhuma Correlacao'
+    WHEN   CAST(phi AS DECIMAL(6,2)) >= 0.36 and 
+           CAST(phi AS DECIMAL(6,2)) <= 0.67 then 'Moderada Correlacao Positiva'
+    WHEN   CAST(phi AS DECIMAL(6,2)) >= 0.68 and 
+           CAST(phi AS DECIMAL(6,2)) <  1 then 'Forte Correlacao Positiva'
+	WHEN support = 1 and confidence = 1 and phi is null  THEN 'suporte/Confiança = 100%'
+    ELSE 'NA' END ) level_corr , 
+    concat(cast(year as char(4)), cast(mon as char(2))) as yearMon, test
+    From TB_Rule_Animal_Neighbor_Animal 
+    where lhs not like '{}' and    
+               (replace(replace (replace(lhs, '{ind1=', ''), '}',''),  '{ind2=', '') <> 
+                replace(replace (replace(rhs, '{ind1=', ''), '}',''),  '{ind2=', ''))
+                order by replace(replace(lhs, '{ind1=', ''), '}',''), 
+                replace(replace(rhs, '{ind2=', ''), '}', ''), year, mon,  phi desc, dep desc;"
+    
+    dataRes <- dbSendQuery(connAssoc, SQLRule)
+    dsRes <- fetch(dataRes,n = -1)
+    dsYear = unique(dsRes$year)
+
+    b = 1
+    p =""
+    t = length(dsYear)
+
+    for (b in 1:t){
+       dsa <- filter (dsRes, as.character(dsRes$year) == as.character(dsYear[b]))
+       p <- ggplot(dsa, aes(fill=dsa$test, y=dsa$Phi, x=paste(dsa$Animal1, "_", dsa$Animal2, sep=""))) + 
+       geom_bar(position="dodge", stat="identity",  width = 0.4) + theme(axis.text.x = element_text(angle=85, vjust=0.6)) + 
+       labs(title="Nível de Correlação entre animais", 
+       subtitle= "para diferentes valores de suporte e confiança mínimos", caption= paste("Ano: ", dsa$year, sep="")) +   
+       xlab("Animais") + ylab("Phi(%)") + scale_fill_discrete(name = "Mínimo Suporte/Confiança") 
+       p <- p +  facet_wrap(~dsa$Month, ncol= 2)
+       plot(p)
+       
+       p <- ggplot(dsa, aes(fill=dsa$test, y=dsa$lift, x=paste(dsa$Animal1, "_", dsa$Animal2, sep=""))) + 
+       geom_bar(position="dodge", stat="identity",  width = 0.4) + theme(axis.text.x = element_text(angle=85, vjust=0.6)) + 
+       labs(title="Nível de dependência entre animais", 
+       subtitle= "para diferentes valores de suporte e confiança mínimos", caption= paste("Ano: ", dsa$year, sep="")) +   
+       xlab("Animais") + ylab("Lift") + scale_fill_discrete(name = "Mínimo Suporte/Confiança") 
+       p <- p +  facet_wrap(~dsa$Month, ncol= 2)
+       plot(p)
+    }
+ 
+    dsYear1 = unique(paste(dsRes$year, dsRes$test, sep=""))
+    a = 1
+
+    for (a in 1:length(dsYear1)){
+       dsa <- filter (dsRes, as.character(paste(dsRes$year, dsRes$test, sep="")) == as.character(dsYear1[a]))
+       
+       x <- ggplot(dsa, aes(dsa$Animal1, dsa$Animal2,  vjust=0.1, 
+                            label = paste("p:", dsa$Phi, " | r:",dsa$Reg, sep="")))+   
+            geom_tile(aes(fill = dsa$Phi), colour = "white") + scale_fill_gradient(low = "white", high = "steelblue", 
+                                                                                   limits=c(0,100)) + 
+            xlab(" Animal 1") + ylab("Animal 2") + labs(fill = "Phi(%)")  +  geom_text_repel(color = "black", size = 3) +
+            theme(axis.text.x = element_text(angle=85, vjust=0.6)) + labs(title="Nível de Correlação entre animais por Mês e Ano", 
+            subtitle= paste("minSup: ", params$minSupConf[a], " | ", "minConf: ", params$minSupConf[a], sep=""), 
+            caption= paste("Ano: ",dsa$year, sep="")) + 
+            facet_wrap(~dsa$Month, ncol= 2)
+       plot(x)
+       
+       
+      # v <- ggplot(dsa, aes(x= paste(dsa$Animal1, "_", dsa$Animal2, sep=""), y= dsa$lift,  vjust=0.1, 
+      #                       label = paste("S:", dsa$sup1, "\n A:",dsa$supA,  "\n B:",dsa$supB, sep="")))+   
+      #       geom_bar(position="dodge", stat="identity", fill="#FF9999", colour="black",  width = 0.7) + 
+      #                  theme(axis.text.x = element_text(angle=85, vjust=0.6)) + 
+      #       xlab(" Animal 1") + ylab("Animal 2") + scale_colour_manual(values="blue") +
+      #       geom_text_repel(color = "black", size = 3) +
+      #       labs(title="Nivel de depend?ncia entre animais por m?s e ano", 
+      #       subtitle= paste("minSup: ", params$minSupConf[a], " | ", "minConf: ", params$minSupConf[a], sep=""), 
+      #       caption= paste("Ano: ",dsa$year, sep="")) + 
+      #       facet_wrap(~dsa$Month, ncol= 2)
+      #  plot(v)
+       
+          z <- ggplot(dsa, aes(dsa$Animal1, dsa$Animal2, hjust=1, 
+                            label = paste("s:", dsa$Sup, "% | r:", dsa$Reg, sep=""))) +
+           geom_tile(aes(fill = dsa$Conf), colour = "white") +
+           scale_fill_gradient(low = "white", high = "steelblue",  limits=c(0,100)) + xlab(" Animal 1") + ylab("Animal 2") + 
+           labs(fill = "Conf(%)")  +  geom_text_repel(color = "black", size = 3) +
+           labs(title="% de Confiança da relação entre animais por ano", 
+           subtitle= paste("minSup: ", params$minSupConf[a], " | ", "minConf: ", params$minSupConf[a], sep=""), 
+           caption= paste("Ano: ", dsa$year, sep="")) + 
+           facet_wrap(~dsa$Month, ncol= 2)
+           plot(z)
+          
+    }
+   
+```
+
+
+```{r}
+
+#### ***************************************************************************************
+#### ***     IDENTIFIES CORRELATION BETWEEN NEIGHBORS ANIMALS  (ANIMAL x ANIMAL) - ANNUAL ***
+#### ***************************************************************************************
+
+connAssoc <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
+sql <- paste("select  ind1, ind2, concat(year(date1), month(date1)) as yearmon, year(date1) year, month(date1) mon 
+              from TB_Distancia_Animal where ind1 <> ind2 and dist <= ", params$dist, sep = "")
+
+dataAssoc <- dbSendQuery(connAssoc,sql)
+ds <- fetch(dataAssoc,n = -1)
+da <- as.data.frame(ds)
+year = unique(da$year)
+b = 1
+Rule = data.frame()
+
+for (b in 1:length(params$minSupConf)){
+a = 1
+df = data.frame()
+
+
+#para cada ano
+for (a in 1:length(year)){
+  y = year[a]
+  dsAssoc <- filter(da, da$year== y)
+ 
+    if (length(dsAssoc) > 0){
+      dsAssoc[] <- lapply(dsAssoc, factor)
+
+      ### transforma em transacao para ser utilizado pelo algoritmo apriori
+      transDados = as(dsAssoc[1:2], "transactions");
+      rules = apriori(transDados, parameter=list(support=params$minSupConf[b], confidence=params$minSupConf[b]));
+
+      if (length(rules)!= 0){
+       
+      #    quality(rules)$phi  <- interestMeasure(rules, measure='phi', significance=T, transDados)
+          ruledf = data.frame(id = ym, year= year, mon = mon,
+                              lhs = labels(lhs(rules)), rhs = labels(rhs(rules)),
+                               rules@quality, 
+                               supA = support(lhs(rules), transDados), 
+                               supB = support(rhs(rules), transDados), 
+                               supEsp = (support(lhs(rules), transDados) * support(rhs(rules), transDados)), 
+                               test =  paste("mSup=", params$minSupConf[b], "/mConf=", params$minSupConf[b], sep = ""),
+                               interestMeasure(rules, c("phi", "lift", "chiSquared", "collectiveStrength"),
+                                               significance=TRUE, transDados)
+                             )
+         
+          plot(sort(rules, by="lift"), method="graph", 
+               main= paste("Ano: ", year, " | minSup: ", params$minSupConf[b],  " |minConf: ", 
+                           params$minSupConf[b],sep=""), control=list(type="items"))
+         
+          df <- rbind(df, ruledf)
+      }
+      
+ 
+  }
+
+}
+
+Rule <- rbind(Rule, df)
+
+}
+
+
+if (length(Rule) > 0) {
+    name_file = "TB_Rule_Animal_Neighbor_Animal_Anual"
+    dbWriteTable(connAssoc, value = Rule, name = name_file, append = T) 
+  
+}
+
+    SQLRule = "select year, mon Month, CAST(supA AS DECIMAL(6,1)) supA,  CAST(supB AS DECIMAL(6,1))supB, 
+    replace(replace (replace(lhs, '{ind1=', ''), '}',''),  '{ind2=', '') Animal1, 
+    replace(replace (replace(rhs, '{ind1=', ''), '}',''),  '{ind2=', '') Animal2, 
+    CAST(support AS DECIMAL(6,1))  sup1, 
+    cast((IFNULL(CAST(support AS DECIMAL(6,2)), 1)  * 100) as decimal(3))  'Sup', 
+    cast((IFNULL(CAST(confidence AS DECIMAL(6,2)), 1)  * 100) as decimal(3)) 'Conf',     
+	(CASE WHEN  support = 1 and confidence = 1 and phi is null THEN cast((IFNULL(CAST(phi AS DECIMAL(6,2)), 1)  * 100) as decimal(3))
+    Else  cast((CAST(phi AS DECIMAL(6,2))  * 100) as decimal(2)) END) Phi,     
+    cast(lift as decimal(3)) lift,
+    ((CASE WHEN support > supEsp  THEN '1' WHEN support < supEsp THEN '-1'  WHEN support = supEsp  THEN '0' END )  + 
+     (CASE WHEN confidence > supB THEN '1' WHEN confidence < supB THEN '-1' WHEN confidence = supB THEN '0' END )  +  
+	 (CASE WHEN lift > 1  THEN '1' WHEN lift < 1 THEN '-1' WHEN lift = 1  THEN '0' END )) Dep,
+    count as 'Reg',
+    (CASE  WHEN  CAST(phi AS DECIMAL(6,2)) = -1 THEN 'Correlacao Negativa Perfeita' 
+    WHEN CAST(phi AS DECIMAL(6,2)) =  0 THEN 'Sem Correlacao'
+    WHEN CAST(phi AS DECIMAL(6,2)) =  1 THEN 'Correlacao Positiva Perfeita'
+    WHEN CAST(phi AS DECIMAL(6,2)) > -1 and 
+		 CAST(phi AS DECIMAL(6,2)) <= -0.68 THEN 'Forte Correlacao Negativa'
+    WHEN CAST(phi AS DECIMAL(6,2)) >= - 0.67 and
+    CAST(phi AS DECIMAL(6,2)) <= -0.36 THEN 'Moderada Correlacao Negativa'  WHEN  CAST(phi AS DECIMAL(6,2)) >= - 0.35 and 
+    CAST(phi AS DECIMAL(6,2)) <= 0.35 THEN 'Fraca ou Nenhuma Correlacao'
+    WHEN   CAST(phi AS DECIMAL(6,2)) >= 0.36 and 
+           CAST(phi AS DECIMAL(6,2)) <= 0.67 then 'Moderada Correlacao Positiva' WHEN   CAST(phi AS DECIMAL(6,2)) >= 0.68 and 
+           CAST(phi AS DECIMAL(6,2)) <  1 then 'Forte Correlacao'
+	WHEN support = 1 and confidence = 1 and phi is null  THEN 'suporte/Confiança = 100%'
+    ELSE 'NA' END ) level_corr , 
+    concat(cast(year as char(4)), cast(mon as char(2))) as yearMon, test
+    From TB_Rule_Animal_Neighbor_Animal 
+    where lhs not like '{}' and    
+               (replace(replace (replace(lhs, '{ind1=', ''), '}',''),  '{ind2=', '') <> 
+                replace(replace (replace(rhs, '{ind1=', ''), '}',''),  '{ind2=', ''))
+                order by replace(replace(lhs, '{ind1=', ''), '}',''), 
+                replace(replace(rhs, '{ind2=', ''), '}', ''), year, mon,  phi desc, dep desc;"
+    
+    dataRes <- dbSendQuery(connAssoc, SQLRule)
+    dsRes <- fetch(dataRes,n = -1)
+    dsYear = unique(dsRes$year)
+
+    dsRes
+    
+    b = 1
+    p =""
+    t = length(dsYear)
+
+    for (b in 1:t){
+       dsa <- filter (dsRes, as.character(dsRes$year) == as.character(dsYear[b]))
+       p <- ggplot(dsa, aes(fill=dsa$test, y=dsa$Phi, x=paste(dsa$Animal1, "_", dsa$Animal2, sep=""))) + 
+       geom_bar(position="dodge", stat="identity",  width = 0.4) + theme(axis.text.x = element_text(angle=85, vjust=0.6)) + 
+       labs(title="Nível de Correlação entre animais", 
+       subtitle= "para diferentes valores de suporte e confian?a m?nimos", caption= paste("Ano: ", dsa$year, sep="")) +   
+       xlab("Animais") + ylab("Phi") + scale_fill_discrete(name = "Mnimo Suporte/Confiança") 
+           plot(p)
+       
+       p <- ggplot(dsa, aes(fill=dsa$test, y=dsa$lift, x=paste(dsa$Animal1, "_", dsa$Animal2, sep=""))) + 
+       geom_bar(position="dodge", stat="identity",  width = 0.4) + theme(axis.text.x = element_text(angle=85, vjust=0.6)) + 
+       labs(title="Nível de dependência entre animais", 
+       subtitle= "para diferentes valores de suporte e confiança mìnimos", caption= paste("Ano: ", dsa$year, sep="")) +   
+       xlab("Animais") + ylab("Lift") + scale_fill_discrete(name = "Mínimo Suporte/Confiança") 
+   
+       plot(p)
+    }
+ 
+    
+  
+    dsYear1 = unique(paste(dsRes$year, dsRes$test, sep=""))
+    a = 1
+
+    for (a in 1:length(dsYear1)){
+       dsa <- filter (dsRes, as.character(paste(dsRes$year, dsRes$test, sep="")) == as.character(dsYear1[a]))
+       
+       x <- ggplot(dsa, aes(dsa$Animal1, dsa$Animal2,  vjust=0.1, 
+                            label = paste("p:", dsa$Phi, " | r:",dsa$Reg, sep="")))+   
+            geom_tile(aes(fill = dsa$Phi), colour = "white") + scale_fill_gradient(low = "white", high = "steelblue", limits=c(0,100)) + 
+            xlab(" Animal 1") + ylab("Animal 2") + labs(fill = "Phi(%)")  +  geom_text_repel(color = "black", size = 3) +
+            theme(axis.text.x = element_text(angle=85, vjust=0.6)) + labs(title="Nivel de Correlação entre animais por ano", 
+            subtitle= paste("minSup: ", params$minSupConf[a], " | ", "minConf: ", params$minSupConf[a], sep=""), 
+            caption= paste("Ano: ",dsa$year, sep=""))  
+            
+       plot(x)
+       
+       
+      # v <- ggplot(dsa, aes(x= paste(dsa$Animal1, "_", dsa$Animal2, sep=""), y= dsa$lift,  vjust=0.1, 
+      #                       label = paste("S:", dsa$sup1, "\n A:",dsa$supA,  "\n B:",dsa$supB, sep="")))+   
+      #       geom_bar(position="dodge", stat="identity", fill="#FF9999", colour="black",  width = 0.7) + 
+      #                  theme(axis.text.x = element_text(angle=85, vjust=0.6)) + 
+      #       xlab(" Animal 1") + ylab("Animal 2") + scale_colour_manual(values="blue") +
+      #       geom_text_repel(color = "black", size = 3) +
+      #       labs(title="Nivel de depend?ncia entre animais por m?s e ano", 
+      #       subtitle= paste("minSup: ", params$minSupConf[a], " | ", "minConf: ", params$minSupConf[a], sep=""), 
+      #       caption= paste("Ano: ",dsa$year, sep="")) 
+      #  plot(v)
+       
+          z <- ggplot(dsa, aes(dsa$Animal1, dsa$Animal2, hjust=1, 
+                            label = paste("s:", dsa$Sup, "% | r:", dsa$Reg, sep=""))) +
+           geom_tile(aes(fill = dsa$Conf), colour = "white") +
+           scale_fill_gradient(low = "white", high = "steelblue",  limits=c(0,100)) + xlab(" Animal 1") + ylab("Animal 2") + 
+           labs(fill = "Conf(%)")  +  geom_text_repel(color = "black", size = 3) +
+           labs(title="% de COnfiança da relação entre animais por ano", 
+           subtitle= paste("minSup: ", params$minSupConf[a], " | ", "minConf: ", params$minSupConf[a], sep=""), 
+           caption= paste("Ano: ", dsa$year, sep="")) 
+           plot(z)
+          
+    }
+   
+```
+
+```{r}
+#### ************************************************************************************************
+#### ***                   COEFICIENTE DE CRAMER (ACOCK; STAVIG, 1979)                            ***
+#### ************************************************************************************************
+
+ dsYearMon = unique(paste(dsRes$year, dsRes$Month, sep=""))
+ h = 1 
+    
+     for (h in 1:length(dsYearMon)){
+        dt <- filter (dsRes, as.character(paste(dsRes$year, dsRes$Month, sep="")) == as.character(dsYearMon[h]))
+         x <- xtabs(~dt$Animal1+dt$Animal2, data=dt)
+         ftable(x) # print table 
+         print(dsYearMon[h])
+         print(x)
+         print(summary(x)) # chi-square test of indepedence
+        #assocstats(x)
+        print(assocstats(x))
+    }
+     
+      
+dbDisconnect(connAssoc)
+
+```
+
+
+```{r}
+
+#### ************************************************************************************************
+#### ***        GRAPH WITH THE AVERAGE TIME OF STATE DURATION BY ANIMAL/MONTH/YEAR                ***
+#### ************************************************************************************************
+
+df = filter(dtMovClr, difSeqM > 0)
+dt = df%>%group_by(id, estado, yearSeq, mon)%>%summarise(mean = mean(difSeqM))
+dt = as.data.frame(dt)
+dfId = unique(dt$id)
+
+i= 1
+
+#para cada id, ano, mes, estado 
+for (i in 1:length(dfId)){
+      da = filter(dt, dt$id == dfId[i])
+      monyear = paste(da$year, "-", str_pad(da$mon, 2, pad = "0"), sep = "")
+      sd = sd(da$mean)
+
+      p <-  ggplot(data=da, aes(x=as.character(monyear),
+                                y=substring(hms((as.integer(as.character(da$mean)) *60)), 1, 5), group=da$estado)) +
+            geom_line(aes(color=da$estado))+
+            geom_point(aes(color=da$estado)) +
+            theme(axis.text.x = element_text(angle=65, vjust=0.6)) + scale_color_discrete(name = "Estado") +
+            labs(title="Tempo médio de duração do Comportamento Animal por Mês/Ano\n", 
+            subtitle= paste("Animal:", da$id, sep=""), caption= paste("Ano: ", da$yearSeq, sep="")) +  
+            xlab("Ano/Mês") + ylab("Tempo (h:m)")  + geom_smooth(aes(color=da$estado), linetype = "dashed", method=lm, se=FALSE, fullrange=TRUE)
+            plot(p)
+}
+
+```
+
+
+```{r}
+
+#### *********************************************************************************************
+#### *** CHART:                BEHAVIORAL CHARTS PER PERIOD OF THE DAY  (GENERAL)             ***
+#### *********************************************************************************************
+conn <- dbConnect(MySQL(), user="root", db="weka", host="localhost")
+data <- dbSendQuery(conn, "select  C.id, C.yearSeq, C.mon, C.estado, 
+(CASE WHEN C.periodo = 'D' THEN 'Dia' WHEN C.periodo = 'N' THEN 'Noite' WHEN C.periodo = 'DN' THEN 'Dia/Noite' END) periodo, 
+C.yearmonidest, count(C.periodo) totalbyPeriod, A.total_ocorr, 
+(select count(periodo) From  TBPeriodState where C.yearmonidest = yearmonidest group by yearmonidest) totalByState From  TBPeriodState C,
+(select B.yearid, B.mon, count(B.mon) total_ocorr  From TBPeriodState B  group by B.yearid, B.mon) A  where  A.yearid =  C.yearid and
+A.mon = C.mon group by C.yearmonidest, C.periodo order by C.yearmonidest, totalbyPeriod desc;")
+
+
+ds <- fetch(data,n = -1)
+df <- as.data.frame(ds)
+
+dfid <-  unique (paste(df$id, df$yearSeq, sep = ""))
+i = 1
+
+ for (i in 1:length(dfid)){
+      
+        da =  filter(df, paste(df$id, df$yearSeq, sep = "") == dfid[i])
+        p <- ggplot(da, aes(x=str_pad(da$mon, 2, pad = "0"), weights=da$totalbyPeriod)) + geom_bar(aes(fill=da$periodo), color="Black") +
+            theme(axis.text.x = element_text(angle=65, vjust=0.6)) + 
+            labs(title="Frequência de ocorrência dos estados do comportamento animal", 
+            subtitle= paste ("Animal: ", da$id, sep = ""), 
+            caption= paste("Ano: ", da$yearSeq, " | ", "Total de Ocorr~encias: ", unique(da$total_ocorr), sep="")) +   
+            xlab("Mês") + ylab("Qtde. ocorrências") + scale_fill_discrete(name = "Período do dia") 
+            p <- p +  facet_wrap(~da$estado)
+            plot(p)
+        
+        x <-  ggplot(data=da, aes(x=str_pad(da$mon, 2, pad = "0"), y= da$totalbyPeriod, group=da$periodo)) +
+            geom_line(aes(color=da$periodo))+
+            geom_point(aes(color=da$periodo)) + 
+            theme(axis.text.x = element_text(angle=65, vjust=0.6)) + scale_color_discrete(name = "Período do Dia") +
+            labs(title="Frequência de ocorrência dos estados do comportamento animal\n", 
+            subtitle= paste("Animal:", da$id, sep=""), 
+            caption= paste("Ano: ", da$yearSeq, " | ", "Total de Ocorrências: ", unique(da$total_ocorr), sep="")) +   
+            xlab("Mês") + ylab("Qtde. ocorrências")  
+            x <- x +  facet_wrap(~da$estado, ncol=1)
+            plot(x)
+ }
+
+
+dbDisconnect(conn)
+
+
+```
+
+
+```{r}
+
+#### *********************************************************************************************
+#### *** CHART:               BEHAVIOR BY STATE/SEASON/PERIOD DAY                      ***
+#### *********************************************************************************************
+
+if (params$season == "Sim") {
+    #dbDisconnect(connMove)
+    connMove <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
+    dat <- dbSendQuery(connMove, "call calcTotalStateBySeasonPeriod();")
+    dt <- fetch(dat,n = -1)
+    dsRes <- as.data.frame(dt)
+    
+    w = 1
+    dsRes$estado
+    da = unique(dsRes$yearId)
+      ds <- filter (dsRes, as.character(dsRes$estado) == "Forrageio")
+        
+         a <- ggplot(ds, aes(y=ds$total_perc, x=ds$season) ) + 
+         geom_bar(position="dodge", stat="identity", fill="#FF9999",   width = 0.4) + 
+         theme(axis.text.x = element_text(angle=85, vjust=0.6)) + 
+         labs(title="% ocorrência do forrageamento por período do dia e estação do ano") +   
+         xlab("Estação do Ano") + ylab("% ocorrência") 
+         a <- a + facet_wrap(~ds$periodo, ncol=1)
+         plot(a)
+    
+    for (w in 1:length(dt)){
+         dsa <- filter (dsRes, as.character(dsRes$yearId) == as.character(da[w]))
+         p <- ggplot(dsa, aes(fill=dsa$periodo, y=dsa$total_perc, x=dsa$season) ) + 
+         geom_bar(position="dodge", stat="identity",  width = 0.4) + 
+         geom_text(aes(label=format(dsa$total_perc, digits = 0, format = "d")),
+                   position=position_dodge(width=0.3),  size = 3.2, hjust= 0.5, vjust= 0.5) +
+         theme(axis.text.x = element_text(angle=85, vjust=0.6)) + 
+         labs(title="% ocorrência dos estados por perìodo do dia e estação do ano", 
+         subtitle= "", caption= paste("Animal/Ano: ", dsa$yearId, sep="")) +   
+         xlab("Estação do Ano") + ylab("% ocorrência") + scale_fill_discrete(name = "Período do dia")
+         p <- p + facet_wrap(~dsa$estado, ncol=1)
+         plot(p)
+    }
+         
+}
+
+```
+
