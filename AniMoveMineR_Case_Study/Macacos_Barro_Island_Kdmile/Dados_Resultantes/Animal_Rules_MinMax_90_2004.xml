@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:x="urn:schemas-microsoft-com:office:excel"
+xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+xmlns:html="http://www.w3.org/TR/REC-html40">
+<Worksheet ss:Name="Table1">
+	<Table>
+		<Column ss:Index="1" ss:AutoFitWidth="0" ss:Width="110"/>
+		<Column ss:Index="2" ss:AutoFitWidth="0" ss:Width="110"/>
+		<Column ss:Index="3" ss:AutoFitWidth="0" ss:Width="110"/>
+		<Column ss:Index="4" ss:AutoFitWidth="0" ss:Width="110"/>
+		<Column ss:Index="5" ss:AutoFitWidth="0" ss:Width="110"/>
+		<Column ss:Index="6" ss:AutoFitWidth="0" ss:Width="110"/>
+		<Row>
+			<Cell><Data ss:Type="String">row_names</Data></Cell>
+			<Cell><Data ss:Type="String">id</Data></Cell>
+			<Cell><Data ss:Type="String">year</Data></Cell>
+			<Cell><Data ss:Type="String">mon</Data></Cell>
+			<Cell><Data ss:Type="String">lhs</Data></Cell>
+			<Cell><Data ss:Type="String">rhs</Data></Cell>
+			<Cell><Data ss:Type="String">support</Data></Cell>
+			<Cell><Data ss:Type="String">confidence</Data></Cell>
+			<Cell><Data ss:Type="String">lift</Data></Cell>
+			<Cell><Data ss:Type="String">count</Data></Cell>
+			<Cell><Data ss:Type="String">supA</Data></Cell>
+			<Cell><Data ss:Type="String">supB</Data></Cell>
+			<Cell><Data ss:Type="String">supEsp</Data></Cell>
+			<Cell><Data ss:Type="String">phi</Data></Cell>
+			<Cell><Data ss:Type="String">lift.1</Data></Cell>
+		</Row>
+
+		<Row>
+			<Cell><Data ss:Type="String">1</Data></Cell>
+			<Cell><Data ss:Type="String">200412</Data></Cell>
+			<Cell><Data ss:Type="String">2004</Data></Cell>
+			<Cell><Data ss:Type="String">12</Data></Cell>
+			<Cell><Data ss:Type="String">{}</Data></Cell>
+			<Cell><Data ss:Type="String">{ind2=52}</Data></Cell>
+			<Cell><Data ss:Type="Number">0.903100775193798</Data></Cell>
+			<Cell><Data ss:Type="Number">0.903100775193798</Data></Cell>
+			<Cell><Data ss:Type="Number">1</Data></Cell>
+			<Cell><Data ss:Type="Number">466</Data></Cell>
+			<Cell><Data ss:Type="Number">1</Data></Cell>
+			<Cell><Data ss:Type="Number">0.903100775193798</Data></Cell>
+			<Cell><Data ss:Type="Number">0.903100775193798</Data></Cell>
+			<Cell><Data ss:Type="Number"></Data></Cell>
+			<Cell><Data ss:Type="Number">1</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">2</Data></Cell>
+			<Cell><Data ss:Type="String">200412</Data></Cell>
+			<Cell><Data ss:Type="String">2004</Data></Cell>
+			<Cell><Data ss:Type="String">12</Data></Cell>
+			<Cell><Data ss:Type="String">{}</Data></Cell>
+			<Cell><Data ss:Type="String">{ind1=53}</Data></Cell>
+			<Cell><Data ss:Type="Number">0.914728682170543</Data></Cell>
+			<Cell><Data ss:Type="Number">0.914728682170543</Data></Cell>
+			<Cell><Data ss:Type="Number">1</Data></Cell>
+			<Cell><Data ss:Type="Number">472</Data></Cell>
+			<Cell><Data ss:Type="Number">1</Data></Cell>
+			<Cell><Data ss:Type="Number">0.914728682170543</Data></Cell>
+			<Cell><Data ss:Type="Number">0.914728682170543</Data></Cell>
+			<Cell><Data ss:Type="Number"></Data></Cell>
+			<Cell><Data ss:Type="Number">1</Data></Cell>
+		</Row>	</Table>
+</Worksheet>
+</Workbook>
