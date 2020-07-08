@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:x="urn:schemas-microsoft-com:office:excel"
+xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+xmlns:html="http://www.w3.org/TR/REC-html40">
+<Worksheet ss:Name="Table1">
+	<Table>
+		<Column ss:Index="1" ss:AutoFitWidth="0" ss:Width="110"/>
+		<Column ss:Index="2" ss:AutoFitWidth="0" ss:Width="110"/>
+		<Column ss:Index="3" ss:AutoFitWidth="0" ss:Width="110"/>
+		<Row>
+			<Cell><Data ss:Type="String">indice</Data></Cell>
+			<Cell><Data ss:Type="String">nm_class_portuguese</Data></Cell>
+			<Cell><Data ss:Type="String">nm_class_english</Data></Cell>
+			<Cell><Data ss:Type="String">id_class</Data></Cell>
+		</Row>
+
+		<Row>
+			<Cell><Data ss:Type="String">1.    </Data></Cell>
+			<Cell><Data ss:Type="String">Floresta </Data></Cell>
+			<Cell><Data ss:Type="String">Forest </Data></Cell>
+			<Cell><Data ss:Type="Number">1</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">1.1.  </Data></Cell>
+			<Cell><Data ss:Type="String">Floresta Natural </Data></Cell>
+			<Cell><Data ss:Type="String">Natural Forest </Data></Cell>
+			<Cell><Data ss:Type="Number">2</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">1.1.1.</Data></Cell>
+			<Cell><Data ss:Type="String">Formação Florestal</Data></Cell>
+			<Cell><Data ss:Type="String">Forest Formation </Data></Cell>
+			<Cell><Data ss:Type="Number">3</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">1.1.2.</Data></Cell>
+			<Cell><Data ss:Type="String">Formação Savânica </Data></Cell>
+			<Cell><Data ss:Type="String">Savanna Formation </Data></Cell>
+			<Cell><Data ss:Type="Number">4</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">1.1.3.</Data></Cell>
+			<Cell><Data ss:Type="String">Mangue </Data></Cell>
+			<Cell><Data ss:Type="String">Mangrove </Data></Cell>
+			<Cell><Data ss:Type="Number">5</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">1.2.  </Data></Cell>
+			<Cell><Data ss:Type="String">Floresta Plantada </Data></Cell>
+			<Cell><Data ss:Type="String">Forest Plantation </Data></Cell>
+			<Cell><Data ss:Type="Number">9</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">2.    </Data></Cell>
+			<Cell><Data ss:Type="String">Formação Natural não Florestal </Data></Cell>
+			<Cell><Data ss:Type="String">Non Forest Natural Formation </Data></Cell>
+			<Cell><Data ss:Type="Number">10</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">2.1.  </Data></Cell>
+			<Cell><Data ss:Type="String">Área Úmida Natural não Florestal </Data></Cell>
+			<Cell><Data ss:Type="String">Wetland </Data></Cell>
+			<Cell><Data ss:Type="Number">11</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">2.2.  </Data></Cell>
+			<Cell><Data ss:Type="String">Formação Campestre </Data></Cell>
+			<Cell><Data ss:Type="String">Grassland </Data></Cell>
+			<Cell><Data ss:Type="Number">12</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">2.5.  </Data></Cell>
+			<Cell><Data ss:Type="String">Outra Formação Natural não Florestal   </Data></Cell>
+			<Cell><Data ss:Type="String">Other Non Forest Natural Formation </Data></Cell>
+			<Cell><Data ss:Type="Number">13</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">3.    </Data></Cell>
+			<Cell><Data ss:Type="String">Agropecuária </Data></Cell>
+			<Cell><Data ss:Type="String">Farming </Data></Cell>
+			<Cell><Data ss:Type="Number">14</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">3.1.  </Data></Cell>
+			<Cell><Data ss:Type="String">Pastagem </Data></Cell>
+			<Cell><Data ss:Type="String">Pasture </Data></Cell>
+			<Cell><Data ss:Type="Number">15</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">3.2.  </Data></Cell>
+			<Cell><Data ss:Type="String">Agricultura </Data></Cell>
+			<Cell><Data ss:Type="String">Agriculture</Data></Cell>
+			<Cell><Data ss:Type="Number">18</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">3.2.1.</Data></Cell>
+			<Cell><Data ss:Type="String">Cultura Anual e Perene </Data></Cell>
+			<Cell><Data ss:Type="String">Annual and Perennial Crop </Data></Cell>
+			<Cell><Data ss:Type="Number">19</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">3.2.2.</Data></Cell>
+			<Cell><Data ss:Type="String">Cultura Semi-Perene </Data></Cell>
+			<Cell><Data ss:Type="String">Semi-perennial Crop </Data></Cell>
+			<Cell><Data ss:Type="Number">20</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">3.3.  </Data></Cell>
+			<Cell><Data ss:Type="String">Mosaico de Agricultura e Pastagem </Data></Cell>
+			<Cell><Data ss:Type="String">Mosaic of Agriculture and Pasture </Data></Cell>
+			<Cell><Data ss:Type="Number">21</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">4.    </Data></Cell>
+			<Cell><Data ss:Type="String">Área não vegetada </Data></Cell>
+			<Cell><Data ss:Type="String">Non vegetated area </Data></Cell>
+			<Cell><Data ss:Type="Number">22</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">4.1.  </Data></Cell>
+			<Cell><Data ss:Type="String">Praia e Duna </Data></Cell>
+			<Cell><Data ss:Type="String">Beach and Dune </Data></Cell>
+			<Cell><Data ss:Type="Number">23</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">4.2.  </Data></Cell>
+			<Cell><Data ss:Type="String">Infraestrutura Urbana</Data></Cell>
+			<Cell><Data ss:Type="String">Urban Infrastructure </Data></Cell>
+			<Cell><Data ss:Type="Number">24</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">4.4.  </Data></Cell>
+			<Cell><Data ss:Type="String">Outra Área não Vegetada </Data></Cell>
+			<Cell><Data ss:Type="String">Other Non Vegetated Area </Data></Cell>
+			<Cell><Data ss:Type="Number">25</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">5.    </Data></Cell>
+			<Cell><Data ss:Type="String">Corpos D&#39;água </Data></Cell>
+			<Cell><Data ss:Type="String">Water </Data></Cell>
+			<Cell><Data ss:Type="Number">26</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">6.    </Data></Cell>
+			<Cell><Data ss:Type="String">Não observado </Data></Cell>
+			<Cell><Data ss:Type="String">Non Observed </Data></Cell>
+			<Cell><Data ss:Type="Number">27</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">2.4.  </Data></Cell>
+			<Cell><Data ss:Type="String">Afloramento Rochoso</Data></Cell>
+			<Cell><Data ss:Type="String">Rocky Outcrop </Data></Cell>
+			<Cell><Data ss:Type="Number">29</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">4.3.  </Data></Cell>
+			<Cell><Data ss:Type="String">Mineração </Data></Cell>
+			<Cell><Data ss:Type="String">Mining </Data></Cell>
+			<Cell><Data ss:Type="Number">30</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">5.2   </Data></Cell>
+			<Cell><Data ss:Type="String">Aquicultura </Data></Cell>
+			<Cell><Data ss:Type="String">Aquaculture </Data></Cell>
+			<Cell><Data ss:Type="Number">31</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">2.3.  </Data></Cell>
+			<Cell><Data ss:Type="String">Apicum </Data></Cell>
+			<Cell><Data ss:Type="String">Salt Flat </Data></Cell>
+			<Cell><Data ss:Type="Number">32</Data></Cell>
+		</Row>
+		<Row>
+			<Cell><Data ss:Type="String">5.1   </Data></Cell>
+			<Cell><Data ss:Type="String">Rio, Lago e Oceano </Data></Cell>
+			<Cell><Data ss:Type="String">River, Lake and Ocean </Data></Cell>
+			<Cell><Data ss:Type="Number">33</Data></Cell>
+		</Row>	</Table>
+</Worksheet>
+</Workbook>

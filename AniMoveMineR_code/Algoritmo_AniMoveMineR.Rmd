@@ -17,7 +17,7 @@ params:
   dist: 
    input: numeric
    label: "Distância limite (TD)"
-   value: 0.400
+   value: 0.200
   
   interval:
     input: numeric
@@ -110,11 +110,11 @@ data <- dbSendQuery(conn, "call PrepareDB();")
 #### ***          LÊ ARQUIVO (.CSV) E GRAVA NAS TABELAS DO MsqSQL         ***
 #### ************************************************************************
 
-df  <- read.csv(file=params$data, header=TRUE, sep=",")
-df2 <- read.csv(file=params$data1, header=TRUE, sep=",")
+#df  <- read.csv(file=params$data, header=TRUE, sep=",")
+#df2 <- read.csv(file=params$data1, header=TRUE, sep=",")
 
-dbWriteTable(conn, value = df, name = "tb_animal_movement", row.names=F, append = T)
-dbWriteTable(conn, value = df2, name = "tb_fator_ambiente", row.names=F, append = T)
+#dbWriteTable(conn, value = df, name = "tb_animal_movement", row.names=F, append = T)
+#dbWriteTable(conn, value = df2, name = "tb_fator_ambiente", row.names=F, append = T)
 
 ```
 
@@ -141,19 +141,19 @@ dbWriteTable(conn, value = df2, name = "tb_fator_ambiente", row.names=F, append 
 dyn.load("RST_residenceRadii.dll") # if using Windows
 source("RST_functions_all.R")
 
-radius <- params$dist
+#radius <- params$dist
+radius <- c(0.5, 1.935, 3, 5)
 
 # --------------------- PREPARING DATASET --------------------- #
 #dbClearResult(dbListResults(conn)[[1]])
 
-#conn <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
-#data <- dbSendQuery(conn, "select M.individual as band, date as 'Datetime_GMT',  M.lat as 'lat', M.lon as 'lon'
-#                           from tb_mov_animal M;")
-
-
-
 conn <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
-data <- dbSendQuery(conn, "SELECT `tb_animal_movement`.`individual.local.identifier` as band, `tb_animal_movement`.`timestamp` as 'Datetime_GMT',  `tb_animal_movement`.`location.long` as 'lon',  `tb_animal_movement`.`location.lat` as 'lat' FROM tb_animal_movement;")
+data <- dbSendQuery(conn, "select M.individual as band, date as 'Datetime_GMT',  M.lat as 'lat', M.lon as 'lon'
+                           from tb_mov_animal M;")
+
+
+#conn <- dbConnect(MySQL(),user="root", db="weka",host="localhost")
+#data <- dbSendQuery(conn, "SELECT `tb_animal_movement`.`individual.local.identifier` as band, `tb_animal_movement`.`timestamp` as #'Datetime_GMT',  `tb_animal_movement`.`location.long` as 'lon',  `tb_animal_movement`.`location.lat` as 'lat' FROM #tb_animal_movement;")
 
 #armazena os dados numa variavel
 origData <- fetch(data, n = -1)
@@ -189,6 +189,7 @@ time_units = "mins" # one of "secs", "mins", "hours", "days", "weeks"
 # Raio deve ser escolhido em torno da escala de movimento esperado. Tambim i ztil aumentar a resolugco de incrementos de raios
 # Perto de onde a proporgco de pontos de trbnsito cai abaixo de 0,05. Vocj provavelmente precisara executar este uma par de vezes para refinar.
 threshold <- rep(0, length(radius))
+
 
 # determine the different individuals
 bandIDs <- unique(dataset$band)

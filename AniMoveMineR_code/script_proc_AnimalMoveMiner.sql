@@ -328,3 +328,46 @@ order by yearId, season, periodo, total desc;
 END$$
 
 call calcTotalStateBySeasonPeriod();
+
+
+
+/*###################################################################################################################
+### 
+### *********************************     RECOVERY THE SOIL COVER CLASSIFICATION - TAIAMA****************************
+### 
+#####################################################################################################################*/
+/*
+CREATE TABLE `tb_rst_movanimal_estado_copia` (
+  `individual` text,
+  `lat` double DEFAULT NULL,
+  `lon` double DEFAULT NULL,
+  `timestamp` text,
+   `res` text,
+  `estado` text,
+   nm_cobertura text
+ ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
+    
+INSERT INTO TB_RST_MovAnimal_Estado_CopiA
+SELECT individual, A.lat, B.lon, timestamp, res, estado, A.area 
+from tb_cobertura_taiama  A INNER JOIN TB_RST_MovAnimal_Estado B ON (A.lat = B.lat and A.lon  = B.lon) 
+
+
+alter table TB_RST_MovAnimal_Estado_CopiA add cobertura text 
+
+CREATE INDEX idcob ON tb_cobertura_taiama (lat, lon);         
+  
+select ind, CONCAT(replace(replace (replace(lhs, '{estado=', ''), '}',''),  '{nm_class_english=', '') , '/',
+        replace(replace (replace(rhs, '{estado=', ''), '}',''),  '{nm_class_english=', '') ) state_cover,   
+    support, confidence, supA, supB, mon,
+    cast((IFNULL(CAST(support AS DECIMAL(6,2)), 1)  * 100) as decimal(3))  'Sup', 
+    cast((IFNULL(CAST(confidence AS DECIMAL(6,2)), 1)  * 100) as decimal(3)) 'Conf',     
+	(CASE WHEN  support = 1 and confidence = 1 and phi is null THEN cast((IFNULL(CAST(phi AS DECIMAL(6,2)), 1)  * 100) as decimal(3))
+    Else  cast((CAST(phi AS DECIMAL(6,2))  * 100) as decimal(2)) END) Phi,     
+    cast(lift as decimal(3)) lift,
+    count as 'Reg', test
+    From TB_Rule_Animal_Neighbor_Animalx 
+    where lhs not like '{}' 
+	order by test, ind, state_cover, phi desc
+    
+    */
